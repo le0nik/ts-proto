@@ -8,9 +8,9 @@
     "protoc-gen-ts_proto": "./protoc-gen-ts_proto"
   },
   "scripts": {
-    "build": "yarn tsc",
+    "build": "tsc",
     "build:test": "yarn proto2bin && yarn proto2pbjs && yarn bin2ts",
-    "prepare": "yarn build",
+    "prepare": "npm run build",
     "proto2bin": "docker compose run --rm protoc update-bins.sh",
     "proto2bin-node": "docker compose run --rm node update-bins.sh",
     "proto2pbjs": "docker compose run --rm protoc pbjs.sh",
