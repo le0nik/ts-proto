@@ -682,23 +682,23 @@ function makeTimestampMethods(
   const Timestamp = impProto(options, "google/protobuf/timestamp", "Timestamp");
   const NanoDate = imp("NanoDate=nano-date");
 
-  let seconds: string | Code = "date.getTime() / 1_000";
+  let seconds: string | Code = "Math.trunc(date.getTime() / 1_000)";
   let toNumberCode: string | Code = "t.seconds";
   const makeToNumberCode = (methodCall: string) =>
     `t.seconds${options.useOptionals === "all" ? "?" : ""}.${methodCall}`;
 
   if (options.forceLong === LongOption.LONG) {
     toNumberCode = makeToNumberCode("toNumber()");
-    seconds = code`${longs.numberToLong}(date.getTime() / 1_000)`;
+    seconds = code`${longs.numberToLong}(${seconds})`;
   } else if (options.forceLong === LongOption.BIGINT) {
     toNumberCode = code`${bytes.globalThis}.Number(${makeToNumberCode("toString()")})`;
-    seconds = code`BigInt(Math.trunc(date.getTime() / 1_000))`;
+    seconds = code`BigInt(${seconds})`;
   } else if (options.forceLong === LongOption.STRING) {
     toNumberCode = code`${bytes.globalThis}.Number(t.seconds)`;
     // Must discard the fractional piece here
     // Otherwise the fraction ends up on the seconds when parsed as a Long
     // (note this only occurs when the string is > 8 characters)
-    seconds = "Math.trunc(date.getTime() / 1_000).toString()";
+    seconds = code`${seconds}.toString()`;
   }
 
   const maybeTypeField = addTypeToMessages(options) ? `$type: 'google.protobuf.Timestamp',` : "";
@@ -718,7 +718,11 @@ function makeTimestampMethods(
       ? code`
           function toTimestamp(dateStr: string): ${Timestamp} {
             const nanoDate = new ${NanoDate}(dateStr);
-            const seconds = Math.trunc(nanoDate.valueOf() / 1_000);
+
+            const date = {
+              getTime: (): number => nanoDate.valueOf(),
+            } as const;
+            const seconds = ${seconds};
 
             let nanos = nanoDate.getMilliseconds() * 1_000_000;
             nanos += nanoDate.getMicroseconds() * 1_000;
@@ -751,7 +755,7 @@ function makeTimestampMethods(
           function fromTimestamp(t: ${Timestamp}): string {
             const seconds = ${toNumberCode} || 0;
             const nanos = (t.nanos || 0) % 1_000;
-            const micros = ((t.nanos || 0) % 1_000_000) - nanos;
+            const micros = Math.trunc(((t.nanos || 0) % 1_000_000) / 1_000)
             let millis = seconds * 1_000;
             millis += Math.trunc((t.nanos || 0) / 1_000_000);
 

@@ -1,4 +1,5 @@
 /* eslint-disable */
+import { ChannelCredentials, Client, makeGenericClientConstructor, Metadata } from "@grpc/grpc-js";
 import type {
   CallOptions,
   ClientOptions,
@@ -7,7 +8,6 @@ import type {
   ServiceError,
   UntypedServiceImplementation,
 } from "@grpc/grpc-js";
-import { ChannelCredentials, Client, makeGenericClientConstructor, Metadata } from "@grpc/grpc-js";
 import NanoDate from "nano-date";
 import * as _m0 from "protobufjs/minimal";
 import { Timestamp } from "./google/protobuf/timestamp";
@@ -140,24 +140,21 @@ export const TestClient = makeGenericClientConstructor(TestService, "simple.Test
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;
 
-export type DeepPartial<T> = T extends Builtin
-  ? T
-  : T extends globalThis.Array<infer U>
-  ? globalThis.Array<DeepPartial<U>>
-  : T extends ReadonlyArray<infer U>
-  ? ReadonlyArray<DeepPartial<U>>
-  : T extends {}
-  ? { [K in keyof T]?: DeepPartial<T[K]> }
+export type DeepPartial<T> = T extends Builtin ? T
+  : T extends globalThis.Array<infer U> ? globalThis.Array<DeepPartial<U>>
+  : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
+  : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
 
 type KeysOfUnion<T> = T extends T ? keyof T : never;
-export type Exact<P, I extends P> = P extends Builtin
-  ? P
+export type Exact<P, I extends P> = P extends Builtin ? P
   : P & { [K in keyof P]: Exact<P[K], I[K]> } & { [K in Exclude<keyof I, KeysOfUnion<P>>]: never };
 
 function toTimestamp(dateStr: string): Timestamp {
   const nanoDate = new NanoDate(dateStr);
-  const seconds = Math.trunc(nanoDate.valueOf() / 1_000);
+
+  const date = { getTime: (): number => nanoDate.valueOf() } as const;
+  const seconds = Math.trunc(date.getTime() / 1_000);
 
   let nanos = nanoDate.getMilliseconds() * 1_000_000;
   nanos += nanoDate.getMicroseconds() * 1_000;
