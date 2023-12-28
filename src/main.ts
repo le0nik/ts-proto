@@ -680,6 +680,7 @@ function makeTimestampMethods(
   bytes: ReturnType<typeof makeByteUtils>,
 ) {
   const Timestamp = impProto(options, "google/protobuf/timestamp", "Timestamp");
+  const NanoDate = imp("NanoDate=nano-date");
 
   let seconds: string | Code = "date.getTime() / 1_000";
   let toNumberCode: string | Code = "t.seconds";
@@ -713,6 +714,19 @@ function makeTimestampMethods(
             return { ${maybeTypeField} seconds, nanos };
           }
         `
+      : options.useDate === DateOption.STRING_NANO
+      ? code`
+          function toTimestamp(dateStr: string): ${Timestamp} {
+            const nanoDate = new ${NanoDate}(dateStr);
+            const seconds = Math.trunc(nanoDate.valueOf() / 1_000);
+
+            let nanos = nanoDate.getMilliseconds() * 1_000_000;
+            nanos += nanoDate.getMicroseconds() * 1_000;
+            nanos += nanoDate.getNanoseconds();
+
+            return { ${maybeTypeField} seconds, nanos };
+          }
+        `
       : code`
           function toTimestamp(date: Date): ${Timestamp} {
             const seconds = ${seconds};
@@ -730,6 +744,22 @@ function makeTimestampMethods(
             let millis = (${toNumberCode} || 0) * 1_000;
             millis += (t.nanos || 0) / 1_000_000;
             return new ${bytes.globalThis}.Date(millis).toISOString();
+          }
+        `
+      : options.useDate === DateOption.STRING_NANO
+      ? code`
+          function fromTimestamp(t: ${Timestamp}): string {
+            const seconds = ${toNumberCode} || 0;
+            const nanos = (t.nanos || 0) % 1_000;
+            const micros = ((t.nanos || 0) % 1_000_000) - nanos;
+            let millis = seconds * 1_000;
+            millis += Math.trunc((t.nanos || 0) / 1_000_000);
+
+            const nanoDate = new ${NanoDate}(millis);
+            nanoDate.setMicroseconds(micros);
+            nanoDate.setNanoseconds(nanos);
+
+            return nanoDate.toISOStringFull();
           }
         `
       : code`
@@ -1043,7 +1073,12 @@ function getDecodeReadSnippet(ctx: Context, field: FieldDescriptorProto) {
     };
     const decoder = code`${type}.decode(reader, reader.uint32())`;
     readSnippet = code`${unwrap(decoder)}`;
-  } else if (isTimestamp(field) && (options.useDate === DateOption.DATE || options.useDate === DateOption.STRING)) {
+  } else if (
+    isTimestamp(field) &&
+    (options.useDate === DateOption.DATE ||
+      options.useDate === DateOption.STRING ||
+      options.useDate === DateOption.STRING_NANO)
+  ) {
     const type = basicTypeName(ctx, field, { keepValueType: true });
     readSnippet = code`${utils.fromTimestamp}(${type}.decode(reader, reader.uint32()))`;
   } else if (isObjectId(field) && options.useMongoObjectId) {
@@ -1283,7 +1318,12 @@ function getEncodeWriteSnippet(ctx: Context, field: FieldDescriptorProto): (plac
     const tag = ((field.number << 3) | 2) >>> 0;
     const type = basicTypeName(ctx, field, { keepValueType: true });
     return (place) => code`${type}.encode(${utils.toProtoObjectId}(${place}), writer.uint32(${tag}).fork()).ldelim()`;
-  } else if (isTimestamp(field) && (options.useDate === DateOption.DATE || options.useDate === DateOption.STRING)) {
+  } else if (
+    isTimestamp(field) &&
+    (options.useDate === DateOption.DATE ||
+      options.useDate === DateOption.STRING ||
+      options.useDate === DateOption.STRING_NANO)
+  ) {
     const tag = ((field.number << 3) | 2) >>> 0;
     const type = basicTypeName(ctx, field, { keepValueType: true });
     return (place) => code`${type}.encode(${utils.toTimestamp}(${place}), writer.uint32(${tag}).fork()).ldelim()`;
@@ -1635,7 +1675,12 @@ function generateExtension(ctx: Context, message: DescriptorProto | undefined, e
       } else if (isObjectId(field) && options.useMongoObjectId) {
         const type = basicTypeName(ctx, field, { keepValueType: true });
         return (place) => code`${type}.encode(${utils.toProtoObjectId}(${place}), writer.fork()).ldelim()`;
-      } else if (isTimestamp(field) && (options.useDate === DateOption.DATE || options.useDate === DateOption.STRING)) {
+      } else if (
+        isTimestamp(field) &&
+        (options.useDate === DateOption.DATE ||
+          options.useDate === DateOption.STRING ||
+          options.useDate === DateOption.STRING_NANO)
+      ) {
         const type = basicTypeName(ctx, field, { keepValueType: true });
         return (place) => code`${type}.encode(${utils.toTimestamp}(${place}), writer.fork()).ldelim()`;
       } else if (isValueType(ctx, field)) {
@@ -1834,7 +1879,10 @@ function generateFromJson(ctx: Context, fullName: string, fullTypeName: string, 
         }
       } else if (isObjectId(field) && options.useMongoObjectId) {
         return code`${utils.fromJsonObjectId}(${from})`;
-      } else if (isTimestamp(field) && options.useDate === DateOption.STRING) {
+      } else if (
+        isTimestamp(field) &&
+        (options.useDate === DateOption.STRING || options.useDate === DateOption.STRING_NANO)
+      ) {
         return code`${utils.globalThis}.String(${from})`;
       } else if (
         isTimestamp(field) &&
@@ -1883,7 +1931,10 @@ function generateFromJson(ctx: Context, fullName: string, fullTypeName: string, 
             }
           } else if (isObjectId(valueField) && options.useMongoObjectId) {
             return code`${utils.fromJsonObjectId}(${from})`;
-          } else if (isTimestamp(valueField) && options.useDate === DateOption.STRING) {
+          } else if (
+            isTimestamp(valueField) &&
+            (options.useDate === DateOption.STRING || options.useDate === DateOption.STRING_NANO)
+          ) {
             return code`${utils.globalThis}.String(${from})`;
           } else if (
             isTimestamp(valueField) &&
@@ -2058,7 +2109,10 @@ function generateToJson(
         return code`${from}.toString()`;
       } else if (isTimestamp(field) && options.useDate === DateOption.DATE) {
         return code`${from}.toISOString()`;
-      } else if (isTimestamp(field) && options.useDate === DateOption.STRING) {
+      } else if (
+        isTimestamp(field) &&
+        (options.useDate === DateOption.STRING || options.useDate === DateOption.STRING_NANO)
+      ) {
         return code`${from}`;
       } else if (isTimestamp(field) && options.useDate === DateOption.TIMESTAMP) {
         if (options.useJsonTimestamp === JsonTimestampOption.RAW) {
@@ -2077,7 +2131,10 @@ function generateToJson(
           return code`${from}.toString()`;
         } else if (isTimestamp(valueType) && options.useDate === DateOption.DATE) {
           return code`${from}.toISOString()`;
-        } else if (isTimestamp(valueType) && options.useDate === DateOption.STRING) {
+        } else if (
+          isTimestamp(valueType) &&
+          (options.useDate === DateOption.STRING || options.useDate === DateOption.STRING_NANO)
+        ) {
           return code`${from}`;
         } else if (isTimestamp(valueType) && options.useDate === DateOption.TIMESTAMP) {
           return code`${utils.fromTimestamp}(${from}).toISOString()`;
@@ -2232,7 +2289,10 @@ function generateFromPartial(ctx: Context, fullName: string, messageDesc: Descri
         return code`${from} as mongodb.ObjectId`;
       } else if (
         isPrimitive(field) ||
-        (isTimestamp(field) && (options.useDate === DateOption.DATE || options.useDate === DateOption.STRING)) ||
+        (isTimestamp(field) &&
+          (options.useDate === DateOption.DATE ||
+            options.useDate === DateOption.STRING ||
+            options.useDate === DateOption.STRING_NANO)) ||
         isValueType(ctx, field)
       ) {
         return code`${from}`;
@@ -2258,7 +2318,9 @@ function generateFromPartial(ctx: Context, fullName: string, messageDesc: Descri
             return code`${from} as mongodb.ObjectId`;
           } else if (
             isTimestamp(valueField) &&
-            (options.useDate === DateOption.DATE || options.useDate === DateOption.STRING)
+            (options.useDate === DateOption.DATE ||
+              options.useDate === DateOption.STRING ||
+              options.useDate === DateOption.STRING_NANO)
           ) {
             return code`${from}`;
           } else if (isValueType(ctx, valueField)) {
